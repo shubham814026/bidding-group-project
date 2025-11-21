@@ -97,7 +97,7 @@ export const placeBid = async (req, res) => {
 
     const broadcastData = {
       itemId,
-  newPrice: numericBidAmount,
+      newPrice: numericBidAmount,
       previousPrice: populatedBid.previousPrice,
       bidderId: bidderId,
       bidderUsername: populatedBid.bidderId.username,
@@ -108,6 +108,7 @@ export const placeBid = async (req, res) => {
     };
 
     const socketIo = req.app.get('socketio');
+    console.log(`📡 Broadcasting new-bid-placed to auction_${itemId}`, broadcastData);
     socketIo.to(`auction_${itemId}`).emit('new-bid-placed', broadcastData);
     
     // Notify room about new bid for chat notifications

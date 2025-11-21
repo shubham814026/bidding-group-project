@@ -82,15 +82,18 @@ const ItemDetailPage = () => {
 
   useEffect(() => {
     if (!socket || !isConnected || !itemId) {
+      console.log('Socket not ready:', { socket: !!socket, isConnected, itemId });
       return;
     }
 
+    console.log('Joining auction room:', itemId);
     socket.emit('join-auction-room', {
       itemId,
       userId: authUser?._id || null
     });
 
     const handleNewBidPlaced = (payload) => {
+      console.log('🎯 Received new-bid-placed event:', payload);
       setAuctionItem((previous) =>
         previous
           ? {
@@ -121,10 +124,11 @@ const ItemDetailPage = () => {
         toast.info(`New bid placed by ${payload.bidderUsername}: ${formatCurrency(payload.newPrice)}`);
       }
 
-  setBidAmountInput(String(payload.newPrice + payload.bidIncrement));
+      setBidAmountInput(String(payload.newPrice + payload.bidIncrement));
     };
 
     const handleAuctionEnded = (payload) => {
+      console.log('🏁 Received auction-ended event:', payload);
       setAuctionItem((previous) =>
         previous
           ? {
@@ -142,15 +146,17 @@ const ItemDetailPage = () => {
       }
     };
 
+    console.log('Attaching socket event listeners');
     socket.on('new-bid-placed', handleNewBidPlaced);
     socket.on('auction-ended', handleAuctionEnded);
 
     return () => {
+      console.log('Cleaning up socket listeners and leaving room');
       socket.off('new-bid-placed', handleNewBidPlaced);
       socket.off('auction-ended', handleAuctionEnded);
       socket.emit('leave-auction-room', itemId);
     };
-  }, [socket, isConnected, itemId, authUser, auctionItem?.bidIncrement, hasShownEndNotification]);
+  }, [socket, isConnected, itemId, authUser, hasShownEndNotification]);
 
   const minimumBid = useMemo(() => {
     if (!auctionItem) {
