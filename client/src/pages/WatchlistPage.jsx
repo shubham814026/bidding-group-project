@@ -7,7 +7,8 @@ import React, { useEffect, useState } from 'react';
 import { Row, Col, Alert, Button, Badge } from 'react-bootstrap';
 import { toast } from 'react-toastify';
 import { FaHeart, FaTrash } from 'react-icons/fa';
-import api from '../services/api.js';
+import { useSocket } from '../context/SocketContext.jsx';
+import api, { fetchItemPrices } from '../services/api.js';
 import ItemCard from '../components/ItemCard.jsx';
 import LoadingSpinner from '../components/LoadingSpinner.jsx';
 
@@ -18,10 +19,84 @@ import LoadingSpinner from '../components/LoadingSpinner.jsx';
 const WatchlistPage = () => {
   const [watchlist, setWatchlist] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const { socket, isConnected } = useSocket();
 
   useEffect(() => {
     fetchWatchlist();
-  }, []);
+
+    // Auto-refresh only prices every 3 seconds (lightweight)
+    const intervalId = setInterval(async () => {
+      if (watchlist.length > 0) {
+        try {
+          const itemIds = watchlist.map((item) => item._id);
+          const { prices } = await fetchItemPrices(itemIds);
+          
+          // Merge price data into existing watchlist items
+          setWatchlist((prevItems) =>
+            prevItems.map((item) => {
+              const priceData = prices.find((p) => p._id === item._id);
+              return priceData
+                ? {
+                    ...item,
+                    currentPrice: priceData.currentPrice,
+                    totalBids: priceData.totalBids,
+                    highestBidder: priceData.highestBidder,
+                    status: priceData.status,
+                    isAuctionOver: priceData.isAuctionOver
+                  }
+                : item;
+            })
+          );
+        } catch (error) {
+          console.error('Failed to fetch price updates:', error);
+        }
+      }
+    }, 3000);
+
+    return () => clearInterval(intervalId);
+  }, [watchlist.length]);
+
+  // Real-time bid updates for watchlist items
+  useEffect(() => {
+    if (!socket || !isConnected) return;
+
+    const handleBidUpdate = (payload) => {
+      setWatchlist((prevItems) =>
+        prevItems.map((item) =>
+          item._id === payload.itemId
+            ? {
+                ...item,
+                currentPrice: payload.newPrice,
+                totalBids: payload.totalBids,
+                highestBidder: payload.bidderId
+              }
+            : item
+        )
+      );
+    };
+
+    const handleAuctionEnded = (payload) => {
+      setWatchlist((prevItems) =>
+        prevItems.map((item) =>
+          item._id === payload.itemId
+            ? {
+                ...item,
+                status: 'ended',
+                isAuctionOver: true
+              }
+            : item
+        )
+      );
+    };
+
+    socket.on('new-bid-placed', handleBidUpdate);
+    socket.on('auction-ended', handleAuctionEnded);
+
+    return () => {
+      socket.off('new-bid-placed', handleBidUpdate);
+      socket.off('auction-ended', handleAuctionEnded);
+    };
+  }, [socket, isConnected]);
 
   const fetchWatchlist = async () => {
     try {

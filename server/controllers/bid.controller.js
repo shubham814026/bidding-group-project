@@ -73,6 +73,16 @@ export const placeBid = async (req, res) => {
       });
     }
 
+    // Prevent same user from bidding the exact same amount (likely double submission)
+    if (auctionItem.highestBidder && 
+        auctionItem.highestBidder.toString() === bidderId.toString() && 
+        numericBidAmount === minimumBidAmount) {
+      await session.abortTransaction();
+      return res.status(400).json({
+        message: 'You are already the highest bidder. Please bid a higher amount.'
+      });
+    }
+
     const bidDocument = await Bid.create([
       {
         itemId,
@@ -108,11 +118,16 @@ export const placeBid = async (req, res) => {
     };
 
     const socketIo = req.app.get('socketio');
-    console.log(`📡 Broadcasting new-bid-placed to auction_${itemId}`, broadcastData);
     socketIo.to(`auction_${itemId}`).emit('new-bid-placed', broadcastData);
     
-    // Notify room about new bid for chat notifications
+    // Emit globally (for users on listings pages who aren't in a specific room)
+    socketIo.emit('new-bid-placed', broadcastData);
+    
+    console.log('✅ Bid update emitted to all clients');
+    
+    // Notify room about new bid for chat notifications (include itemId for filtering client-side)
     socketIo.to(`auction_${itemId}`).emit('auction-alert', {
+      itemId,
       message: `${populatedBid.bidderId.username} placed a bid of $${numericBidAmount}`,
       type: 'bid',
       timestamp: new Date()
@@ -370,11 +385,23 @@ export const retractBid = async (req, res) => {
 
     // Emit socket event
     const socketIo = req.app.get('socketio');
-    socketIo.to(`auction_${item._id}`).emit('bid-retracted', {
+    const retractionData = {
       itemId: item._id,
       newPrice: item.currentPrice,
       totalBids: item.totalBids,
       timestamp: new Date()
+    };
+
+    // Emit to specific auction room
+    socketIo.to(`auction_${item._id}`).emit('bid-retracted', retractionData);
+    
+    // Emit globally for all pages (treat as new-bid-placed to update the item)
+    socketIo.emit('new-bid-placed', {
+      itemId: item._id,
+      newPrice: item.currentPrice,
+      totalBids: item.totalBids,
+      timestamp: new Date(),
+      isRetraction: true
     });
 
     socketIo.to(`auction_${item._id}`).emit('auction-alert', {

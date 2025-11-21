@@ -3,7 +3,7 @@
  * @description Displays a detailed view of a single auction item with real-time bidding.
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Container,
@@ -29,7 +29,7 @@ import ImageGallery from '../components/ImageGallery.jsx';
 import LoadingSpinner from '../components/LoadingSpinner.jsx';
 import BidHistoryList from '../components/BidHistoryList.jsx';
 import LiveAuctionRoom from '../components/LiveAuctionRoom.jsx';
-import api from '../services/api.js';
+import api, { fetchItemPrices } from '../services/api.js';
 import { formatCurrency, formatDateTime } from '../utils/formatters.js';
 import { priceUpdateVariants, buttonHoverVariants } from '../utils/animationVariants.js';
 
@@ -53,6 +53,7 @@ const ItemDetailPage = () => {
   const [errorMessage, setErrorMessage] = useState('');
   const [isInWatchlist, setIsInWatchlist] = useState(false);
   const [hasShownEndNotification, setHasShownEndNotification] = useState(false);
+  const lastNotifiedBidIdRef = useRef(null);
 
   useEffect(() => {
     if (!itemId) {
@@ -65,7 +66,13 @@ const ItemDetailPage = () => {
       try {
         const response = await api.get(`/items/${itemId}`);
         setAuctionItem(response.data.item);
-        setBidHistory(response.data.recentBids);
+        
+        // Deduplicate and sort bids by timestamp (newest first)
+        const uniqueBids = Array.from(
+          new Map(response.data.recentBids.map(bid => [bid._id, bid])).values()
+        ).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        
+        setBidHistory(uniqueBids);
         setBidAmountInput(
           String(response.data.item.currentPrice + response.data.item.bidIncrement)
         );
@@ -82,18 +89,15 @@ const ItemDetailPage = () => {
 
   useEffect(() => {
     if (!socket || !isConnected || !itemId) {
-      console.log('Socket not ready:', { socket: !!socket, isConnected, itemId });
       return;
     }
 
-    console.log('Joining auction room:', itemId);
     socket.emit('join-auction-room', {
       itemId,
       userId: authUser?._id || null
     });
 
     const handleNewBidPlaced = (payload) => {
-      console.log('🎯 Received new-bid-placed event:', payload);
       setAuctionItem((previous) =>
         previous
           ? {
@@ -124,7 +128,7 @@ const ItemDetailPage = () => {
         toast.info(`New bid placed by ${payload.bidderUsername}: ${formatCurrency(payload.newPrice)}`);
       }
 
-      setBidAmountInput(String(payload.newPrice + payload.bidIncrement));
+  setBidAmountInput(String(payload.newPrice + payload.bidIncrement));
     };
 
     const handleAuctionEnded = (payload) => {
@@ -156,7 +160,7 @@ const ItemDetailPage = () => {
       socket.off('auction-ended', handleAuctionEnded);
       socket.emit('leave-auction-room', itemId);
     };
-  }, [socket, isConnected, itemId, authUser, hasShownEndNotification]);
+  }, [socket, isConnected, itemId, authUser, auctionItem?.bidIncrement, hasShownEndNotification]);
 
   const minimumBid = useMemo(() => {
     if (!auctionItem) {
@@ -221,12 +225,51 @@ const ItemDetailPage = () => {
       return;
     }
 
+    // Check if user is already highest bidder trying to bid the minimum amount
+    const isCurrentHighestBidder = auctionItem.highestBidder?._id === authUser?._id || 
+                                    auctionItem.highestBidder?.toString() === authUser?._id;
+    
+    if (isCurrentHighestBidder && parsedBidAmount === minimumBid) {
+      toast.error('You are already the highest bidder. Please bid a higher amount.');
+      return;
+    }
+
     try {
       setIsSubmittingBid(true);
-      await api.post('/bids', {
+      const response = await api.post('/bids', {
         itemId,
         bidAmount: parsedBidAmount
       });
+      
+      // Optimistic update for the bidder (since socket event might be delayed)
+      const bidData = response.data.bid;
+      
+      // Update auction item immediately
+      setAuctionItem((previous) => ({
+        ...previous,
+        currentPrice: parsedBidAmount,
+        totalBids: previous.totalBids + 1,
+        highestBidder: {
+          _id: authUser._id,
+          username: authUser.username
+        },
+        updatedAt: new Date()
+      }));
+      
+      // Add to bid history immediately
+      setBidHistory((previousHistory) => [
+        {
+          _id: bidData._id,
+          bidderId: { username: authUser.username },
+          bidAmount: parsedBidAmount,
+          timestamp: bidData.timestamp || new Date()
+        },
+        ...previousHistory
+      ]);
+      
+      // Update minimum bid input
+      setBidAmountInput(String(parsedBidAmount + auctionItem.bidIncrement));
+      
       toast.success('Bid submitted successfully.');
       setShowBidModal(false);
     } catch (error) {

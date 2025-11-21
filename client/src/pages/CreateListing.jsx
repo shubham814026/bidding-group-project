@@ -111,15 +111,36 @@ const CreateListing = () => {
     urlList.forEach((u) => form.append('images', u));
     form.append('startingPrice', String(Number(formData.startingPrice)));
     form.append('bidIncrement', String(Number(formData.bidIncrement)));
-  if (formData.endTime) form.append('endTime', formData.endTime);
+    
+    // EndTime is required - always append it
+    if (formData.endTime) {
+      form.append('endTime', formData.endTime);
+    } else {
+      // This should never happen due to validation, but provide a helpful error
+      toast.error('End time is required. Please select an auction end time.');
+      return;
+    }
+    
     form.append('condition', formData.condition);
     if (formData.reservePrice) form.append('reservePrice', String(Number(formData.reservePrice)));
-    if (formData.dimensionsHeight) form.append('dimensions[height]', String(Number(formData.dimensionsHeight)));
-    if (formData.dimensionsWidth) form.append('dimensions[width]', String(Number(formData.dimensionsWidth)));
-    if (formData.dimensionsDepth) form.append('dimensions[depth]', String(Number(formData.dimensionsDepth)));
-    if (formData.dimensionsWeight) form.append('dimensions[weight]', String(Number(formData.dimensionsWeight)));
-    form.append('dimensions[unit]', formData.dimensionsUnit);
-    if (formData.dimensionsWeight) form.append('dimensions[weightUnit]', formData.weightUnit);
+    
+    // Build dimensions object if any dimension values are provided
+    const hasDimensions = formData.dimensionsHeight || formData.dimensionsWidth || 
+                          formData.dimensionsDepth || formData.dimensionsWeight;
+    
+    if (hasDimensions) {
+      const dimensions = {
+        unit: formData.dimensionsUnit || 'inches',
+        weightUnit: formData.weightUnit || 'kg'
+      };
+      
+      if (formData.dimensionsHeight) dimensions.height = Number(formData.dimensionsHeight);
+      if (formData.dimensionsWidth) dimensions.width = Number(formData.dimensionsWidth);
+      if (formData.dimensionsDepth) dimensions.depth = Number(formData.dimensionsDepth);
+      if (formData.dimensionsWeight) dimensions.weight = Number(formData.dimensionsWeight);
+      
+      form.append('dimensions', JSON.stringify(dimensions));
+    }
 
     selectedFiles.forEach((file) => form.append('images', file));
 
@@ -131,7 +152,19 @@ const CreateListing = () => {
       navigate(`/items/${response.data.item._id}`);
     } catch (error) {
       const message = error.response?.data?.message || 'Unable to create listing.';
-      toast.error(message);
+      
+      // Log detailed validation errors if available
+      if (error.response?.data?.errors) {
+        console.error('Validation errors:', error.response.data.errors);
+        const errorDetails = error.response.data.errors
+          .map(err => `${err.path || err.field}: ${err.msg || err.message}`)
+          .join(', ');
+        toast.error(`${message} Details: ${errorDetails}`);
+      } else {
+        toast.error(message);
+      }
+      
+      console.error('Form submission error:', error.response?.data);
     }
   };
 
@@ -473,10 +506,20 @@ const CreateListing = () => {
                                 type="datetime-local"
                                 className="py-2"
                                 {...register('endTime', {
-                                  required: 'End time is required.',
+                                  required: 'Auction end time is required.',
                                   validate: (value) => {
+                                    if (!value) {
+                                      return 'Please select an end time for the auction.';
+                                    }
                                     const start = watch('startTime');
-                                    if (start && value && new Date(value) <= new Date(start)) {
+                                    const now = new Date();
+                                    const endDate = new Date(value);
+                                    
+                                    if (endDate <= now) {
+                                      return 'End time must be in the future.';
+                                    }
+                                    
+                                    if (start && endDate <= new Date(start)) {
                                       return 'End time must be after the start time.';
                                     }
                                     return true;
@@ -485,6 +528,7 @@ const CreateListing = () => {
                                 isInvalid={Boolean(errors.endTime)}
                               />
                               <Form.Control.Feedback type="invalid">{errors.endTime?.message}</Form.Control.Feedback>
+                              <Form.Text className="text-muted">When should the auction end?</Form.Text>
                             </Form.Group>
                           </Col>
                         </Row>

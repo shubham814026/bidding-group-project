@@ -6,7 +6,8 @@
 import React, { useEffect, useState } from 'react';
 import { Row, Col, Form, Button, Badge, Card } from 'react-bootstrap';
 import { toast } from 'react-toastify';
-import api from '../services/api.js';
+import { useSocket } from '../context/SocketContext.jsx';
+import api, { fetchItemPrices } from '../services/api.js';
 import ItemCard from '../components/ItemCard.jsx';
 import LoadingSpinner from '../components/LoadingSpinner.jsx';
 
@@ -18,10 +19,97 @@ const AuctionsPage = () => {
   const [items, setItems] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filters, setFilters] = useState({ category: '', status: 'active', search: '' });
+  const { socket, isConnected } = useSocket();
 
   useEffect(() => {
     fetchItems();
-  }, []);
+
+    // Auto-refresh only prices every 3 seconds (lightweight)
+    const intervalId = setInterval(async () => {
+      if (items.length > 0) {
+        try {
+          const itemIds = items.map((item) => item._id);
+          const { prices } = await fetchItemPrices(itemIds);
+          
+          // Merge price data into existing items
+          setItems((prevItems) =>
+            prevItems.map((item) => {
+              const priceData = prices.find((p) => p._id === item._id);
+              return priceData
+                ? {
+                    ...item,
+                    currentPrice: priceData.currentPrice,
+                    totalBids: priceData.totalBids,
+                    highestBidder: priceData.highestBidder,
+                    status: priceData.status,
+                    isAuctionOver: priceData.isAuctionOver
+                  }
+                : item;
+            })
+          );
+        } catch (error) {
+          console.error('Failed to fetch price updates:', error);
+        }
+      }
+    }, 3000);
+
+    return () => clearInterval(intervalId);
+  }, [items.length]);
+
+  // Real-time bid updates across all items
+  useEffect(() => {
+    if (!socket || !isConnected) {
+      console.log('AuctionsPage: Socket not ready', { socket: !!socket, isConnected });
+      return;
+    }
+
+    console.log('AuctionsPage: Setting up socket listeners');
+
+    const handleBidUpdate = (payload) => {
+      console.log('AuctionsPage: Received bid update', payload);
+      // Update the specific item's price and bid count in the list
+      setItems((prevItems) =>
+        prevItems.map((item) =>
+          item._id === payload.itemId
+            ? {
+                ...item,
+                currentPrice: payload.newPrice,
+                totalBids: payload.totalBids,
+                highestBidder: payload.bidderId
+              }
+            : item
+        )
+      );
+    };
+
+    const handleAuctionEnded = (payload) => {
+      console.log('AuctionsPage: Auction ended', payload);
+      // Update auction status when it ends
+      setItems((prevItems) =>
+        prevItems.map((item) =>
+          item._id === payload.itemId
+            ? {
+                ...item,
+                status: 'ended',
+                isAuctionOver: true
+              }
+            : item
+        )
+      );
+    };
+
+    // Listen to all auction rooms for updates
+    socket.on('new-bid-placed', handleBidUpdate);
+    socket.on('auction-ended', handleAuctionEnded);
+
+    console.log('AuctionsPage: Socket listeners attached');
+
+    return () => {
+      console.log('AuctionsPage: Cleaning up socket listeners');
+      socket.off('new-bid-placed', handleBidUpdate);
+      socket.off('auction-ended', handleAuctionEnded);
+    };
+  }, [socket, isConnected]);
 
   /**
    * @function fetchItems

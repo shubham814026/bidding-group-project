@@ -6,6 +6,7 @@
 
 import User from '../models/User.js';
 import generateTokenAndSetCookie from '../utils/generateToken.js';
+import cloudinary from '../utils/cloudinary.js';
 
 /**
  * @function registerUser
@@ -195,5 +196,72 @@ export const updateUserProfile = async (req, res) => {
   } catch (updateError) {
     console.error('Error updating user profile:', updateError);
     res.status(500).json({ message: 'Server error while updating profile.' });
+  }
+};
+
+/**
+ * @function uploadProfilePhoto
+ * @description Uploads profile photo to Cloudinary and updates user profile.
+ * @param {import('express').Request} req - Express request with file upload.
+ * @param {import('express').Response} res - Express response object.
+ * @returns {Promise<void>}
+ */
+export const uploadProfilePhoto = async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ message: 'Authentication required.' });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ message: 'No image file provided.' });
+    }
+
+    // Upload to Cloudinary
+    const result = await new Promise((resolve, reject) => {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        {
+          folder: 'auction-profile-photos',
+          transformation: [
+            { width: 500, height: 500, crop: 'fill', gravity: 'face' },
+            { quality: 'auto', fetch_format: 'auto' }
+          ]
+        },
+        (error, result) => {
+          if (error) reject(error);
+          else resolve(result);
+        }
+      );
+      uploadStream.end(req.file.buffer);
+    });
+
+    // Update user profile with new image URL
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found.' });
+    }
+
+    // Delete old image from Cloudinary if exists
+    if (user.profileImage && user.profileImage.includes('cloudinary')) {
+      try {
+        const publicId = user.profileImage.split('/').slice(-2).join('/').split('.')[0];
+        await cloudinary.uploader.destroy(publicId);
+      } catch (deleteError) {
+        console.error('Error deleting old image:', deleteError);
+      }
+    }
+
+    user.profileImage = result.secure_url;
+    await user.save();
+
+    const { password: _password, ...userWithoutPassword } = user.toObject();
+
+    res.status(200).json({
+      message: 'Profile photo uploaded successfully.',
+      user: userWithoutPassword,
+      imageUrl: result.secure_url
+    });
+  } catch (error) {
+    console.error('Error uploading profile photo:', error);
+    res.status(500).json({ message: 'Server error while uploading photo.' });
   }
 };

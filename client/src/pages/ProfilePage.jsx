@@ -12,6 +12,7 @@ import { FaEdit, FaSave, FaTimes, FaEnvelope, FaPhone, FaMapMarkerAlt, FaUser, F
 import { useAuthContext } from '../hooks/useAuth.js';
 import api from '../services/api.js';
 import LoadingSpinner from '../components/LoadingSpinner.jsx';
+import ProfilePhotoUpload from '../components/ProfilePhotoUpload.jsx';
 import { buttonHoverVariants } from '../utils/animationVariants.js';
 import { formatDateTime } from '../utils/formatters.js';
 
@@ -40,8 +41,7 @@ const ProfilePage = () => {
       city: authUser?.address?.city || '',
       state: authUser?.address?.state || '',
       zipCode: authUser?.address?.zipCode || '',
-      country: authUser?.address?.country || '',
-      profileImage: authUser?.profileImage || ''
+      country: authUser?.address?.country || ''
     }
   });
 
@@ -55,8 +55,7 @@ const ProfilePage = () => {
         city: authUser.address?.city || '',
         state: authUser.address?.state || '',
         zipCode: authUser.address?.zipCode || '',
-        country: authUser.address?.country || '',
-        profileImage: authUser.profileImage || ''
+        country: authUser.address?.country || ''
       });
     }
   }, [authUser, reset]);
@@ -83,8 +82,7 @@ const ProfilePage = () => {
         username: data.username,
         email: data.email,
         phoneNumber: data.phoneNumber || null,
-        address: Object.values(address).some(v => v) ? address : null,
-        profileImage: data.profileImage || null
+        address: Object.values(address).some(v => v) ? address : null
       };
 
       const response = await api.put('/auth/profile', updateData);
@@ -103,6 +101,15 @@ const ProfilePage = () => {
   const handleCancelEdit = () => {
     reset();
     setIsEditMode(false);
+  };
+
+  /**
+   * @function handlePhotoUploadSuccess
+   * @description Callback after successful photo upload
+   * @param {Object} updatedUser - Updated user data
+   */
+  const handlePhotoUploadSuccess = (updatedUser) => {
+    setAuthUser(updatedUser);
   };
 
   if (isLoading) {
@@ -143,6 +150,14 @@ const ProfilePage = () => {
 
       <Row className="g-4">
         <Col lg={4}>
+          {/* Profile Photo Upload Component - Only in Edit Mode */}
+          {isEditMode && (
+            <ProfilePhotoUpload 
+              currentImage={authUser.profileImage}
+              onUploadSuccess={handlePhotoUploadSuccess}
+            />
+          )}
+          
           <Card className="border-0 shadow-sm">
             <Card.Body className="text-center">
               <div className="mb-3">
@@ -314,18 +329,6 @@ const ProfilePage = () => {
                     />
                     <Form.Text className="text-muted">
                       Optional: Add your phone number for account verification
-                    </Form.Text>
-                  </Form.Group>
-
-                  <Form.Group className="mb-3" controlId="profileImage">
-                    <Form.Label className="fw-semibold">Profile Image URL</Form.Label>
-                    <Form.Control
-                      type="url"
-                      placeholder="https://example.com/image.jpg"
-                      {...register('profileImage')}
-                    />
-                    <Form.Text className="text-muted">
-                      Optional: Add a URL to your profile image
                     </Form.Text>
                   </Form.Group>
 

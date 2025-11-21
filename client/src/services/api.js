@@ -80,4 +80,20 @@ function aioResponseInterceptor(instance) {
   );
 }
 
+/**
+ * @function fetchItemPrices
+ * @description Fetches only price data for multiple items (lightweight endpoint)
+ * @param {string[]} itemIds - Array of item IDs
+ * @returns {Promise<Object>} Object with prices array
+ */
+export const fetchItemPrices = async (itemIds) => {
+  if (!itemIds || itemIds.length === 0) {
+    return { prices: [] };
+  }
+  const response = await api.get('/items/prices/batch', {
+    params: { itemIds: itemIds.join(',') }
+  });
+  return response.data;
+};
+
 export default api;

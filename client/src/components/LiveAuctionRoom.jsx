@@ -68,11 +68,6 @@ const LiveAuctionRoom = ({ itemId }) => {
       });
     });
 
-    // Bid updates
-    socket.on('bid-update', (bidData) => {
-      addNotification('💰 New bid placed!', 'success');
-    });
-
     // Auction alerts
     socket.on('auction-alert', (alert) => {
       if (alert.itemId === itemId) {
@@ -94,7 +89,6 @@ const LiveAuctionRoom = ({ itemId }) => {
       socket.off('viewer-count-update');
       socket.off('new-auction-message');
       socket.off('user-typing-update');
-      socket.off('bid-update');
       socket.off('auction-alert');
       socket.off('watch-count-update');
     };

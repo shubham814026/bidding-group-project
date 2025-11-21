@@ -38,6 +38,7 @@ export const SocketContextProvider = ({ children }) => {
     // Connect socket (now works for both authenticated and guest users)
     console.log('Initializing socket connection');
     const socketUrl = import.meta.env.VITE_SERVER_URL ?? 'http://localhost:5000';
+    console.log('Socket URL:', socketUrl);
     const socketInstance = io(socketUrl, {
       withCredentials: true,
       transports: ['websocket', 'polling'],

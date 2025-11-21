@@ -75,13 +75,19 @@ const finalizeExpiredAuctions = async (io) => {
 
     await auctionItem.save();
 
-    io.to(`auction_${auctionItem._id}`).emit('auction-ended', {
+    const endedData = {
       itemId: auctionItem._id,
       winnerId: auctionItem.winnerId,
       finalPrice: auctionItem.currentPrice,
       totalBids: auctionItem.totalBids,
       endedAt: now
-    });
+    };
+
+    // Emit to specific auction room
+    io.to(`auction_${auctionItem._id}`).emit('auction-ended', endedData);
+    
+    // Emit globally for all pages
+    io.emit('auction-ended', endedData);
   }
 };
 

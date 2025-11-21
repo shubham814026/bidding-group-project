@@ -10,7 +10,8 @@ import {
   getItems,
   getItemById,
   updateItem,
-  deleteItem
+  deleteItem,
+  getItemPrices
 } from '../controllers/item.controller.js';
 import protectRoute from '../middleware/protectRoute.js';
 import { validateItemPayload, validateMongoIdParam } from '../middleware/validators.js';
@@ -19,6 +20,7 @@ const router = Router();
 const upload = multer({ limits: { fileSize: 5 * 1024 * 1024 } }); // 5MB per file
 
 router.get('/', getItems);
+router.get('/prices/batch', getItemPrices);
 router.post('/', protectRoute, upload.array('images', 5), validateItemPayload, createItem);
 router.get('/:id', validateMongoIdParam, getItemById);
 router.put('/:id', protectRoute, validateMongoIdParam, validateItemPayload, updateItem);

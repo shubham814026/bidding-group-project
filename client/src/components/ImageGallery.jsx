@@ -51,7 +51,7 @@ const ImageGallery = ({ images = [], title }) => {
         <Modal.Header closeButton>
           <Modal.Title>{title}</Modal.Title>
         </Modal.Header>
-        <Modal.Body className="p-0" style={{ backgroundColor: '#000' }}>
+        <Modal.Body className="p-0 bg-dark">
           <Carousel activeIndex={currentIndex} onSelect={(selectedIndex) => setCurrentIndex(selectedIndex)} variant="dark">
             {images.map((imageUrl, index) => (
               <Carousel.Item key={imageUrl}>

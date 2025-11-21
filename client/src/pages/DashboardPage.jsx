@@ -7,7 +7,8 @@ import React, { useEffect, useState } from 'react';
 import { Card, Row, Col, ListGroup, Badge } from 'react-bootstrap';
 import { Link } from 'react-router-dom';
 import { useAuthContext } from '../hooks/useAuth.js';
-import api from '../services/api.js';
+import { useSocket } from '../context/SocketContext.jsx';
+import api, { fetchItemPrices } from '../services/api.js';
 import LoadingSpinner from '../components/LoadingSpinner.jsx';
 import { formatCurrency, formatDateTime } from '../utils/formatters.js';
 
@@ -17,6 +18,7 @@ import { formatCurrency, formatDateTime } from '../utils/formatters.js';
  */
 const DashboardPage = () => {
   const { authUser } = useAuthContext();
+  const { socket, isConnected } = useSocket();
   const [isLoading, setIsLoading] = useState(true);
   const [items, setItems] = useState([]);
 
@@ -36,7 +38,80 @@ const DashboardPage = () => {
     };
 
     fetchItems();
-  }, []);
+
+    // Auto-refresh only prices every 3 seconds (lightweight)
+    const intervalId = setInterval(async () => {
+      if (items.length > 0) {
+        try {
+          const itemIds = items.map((item) => item._id);
+          const { prices } = await fetchItemPrices(itemIds);
+          
+          // Merge price data into existing items
+          setItems((prevItems) =>
+            prevItems.map((item) => {
+              const priceData = prices.find((p) => p._id === item._id);
+              return priceData
+                ? {
+                    ...item,
+                    currentPrice: priceData.currentPrice,
+                    totalBids: priceData.totalBids,
+                    highestBidder: priceData.highestBidder,
+                    status: priceData.status,
+                    isAuctionOver: priceData.isAuctionOver
+                  }
+                : item;
+            })
+          );
+        } catch (error) {
+          console.error('Failed to fetch price updates:', error);
+        }
+      }
+    }, 3000);
+
+    return () => clearInterval(intervalId);
+  }, [items.length]);
+
+  // Real-time bid updates
+  useEffect(() => {
+    if (!socket || !isConnected) return;
+
+    const handleBidUpdate = (payload) => {
+      setItems((prevItems) =>
+        prevItems.map((item) =>
+          item._id === payload.itemId
+            ? {
+                ...item,
+                currentPrice: payload.newPrice,
+                totalBids: payload.totalBids,
+                highestBidder: payload.bidderId
+              }
+            : item
+        )
+      );
+    };
+
+    const handleAuctionEnded = (payload) => {
+      setItems((prevItems) =>
+        prevItems.map((item) =>
+          item._id === payload.itemId
+            ? {
+                ...item,
+                status: 'ended',
+                isAuctionOver: true
+              }
+            : item
+        )
+      );
+    };
+
+    socket.on('new-bid-placed', handleBidUpdate);
+    socket.on('auction-ended', handleAuctionEnded);
+
+    return () => {
+      socket.off('new-bid-placed', handleBidUpdate);
+      socket.off('auction-ended', handleAuctionEnded);
+    };
+  }, [socket, isConnected]);
 
   const myListings = items.filter((item) => item.sellerId?._id === authUser._id);
   const activeAuctions = items.filter((item) => item.status === 'active');
